@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<BorlandProject>
+	<Transactions>
+    <Transaction>2025/12/08 15:59:09.000.164,=C:\Users\user\Documents\Embarcadero\Studio\Projects\Unit1.pas</Transaction>
+    <Transaction>2025/12/08 19:03:32.000.933,=C:\Users\user\Documents\Embarcadero\Studio\Projects\Unit1.pas</Transaction>
+    <Transaction>2025/12/08 19:03:54.000.980,C:\Users\user\Documents\xDesafio\Nasajon\codigoFonte\Principal\Uprincipal.pas=C:\Users\user\Documents\Embarcadero\Studio\Projects\Unit1.pas</Transaction>
+    <Transaction>2025/12/08 19:03:54.000.980,C:\Users\user\Documents\xDesafio\Nasajon\codigoFonte\Principal\Uprincipal.dfm=C:\Users\user\Documents\Embarcadero\Studio\Projects\Unit1.dfm</Transaction>
+    <Transaction>2025/12/08 19:04:04.000.556,C:\Users\user\Documents\xDesafio\Nasajon\NASAJON.dproj=C:\Users\user\Documents\Embarcadero\Studio\Projects\Project1.dproj</Transaction>
+    <Transaction>2025/12/08 19:14:12.000.945,=C:\Users\user\Documents\xDesafio\Nasajon\codigoFonte\Interfaces\Interfaces.pas</Transaction>
+    <Transaction>2025/12/08 19:14:25.000.697,=C:\Users\user\Documents\xDesafio\Nasajon\codigoFonte\Implementations\Implementations.pas</Transaction>
+  </Transactions>
+</BorlandProject>

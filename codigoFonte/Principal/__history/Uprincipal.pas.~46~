@@ -1,0 +1,307 @@
+﻿unit Uprincipal;
+
+interface
+
+uses
+  Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes, 
+  Vcl.Graphics, Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls, Vcl.Buttons, 
+  Vcl.ExtCtrls, Vcl.Grids, Vcl.ComCtrls, System.Threading, System.Generics.Collections,
+  Interfaces, Implementations, Data.Bind.Components, Data.Bind.ObjectScope,
+  REST.Client;
+
+type
+  TFprincipal = class(TForm)
+    OpenDialog1: TOpenDialog;
+    Larquivo: TLabel;
+    BBarquivo: TBitBtn;
+    Panel1: TPanel;
+    SGdados: TStringGrid;
+    BBProcessar: TBitBtn;
+    ProgressBar1: TProgressBar;
+    Lstatus: TLabel;
+    Msaida: TMemo;
+    procedure BBarquivoClick(Sender: TObject);
+    procedure BBProcessarClick(Sender: TObject);
+    procedure FormCreate(Sender: TObject);
+    procedure FormDestroy(Sender: TObject);
+  private
+    FFileName: String;
+    FFileReader: IFileReader;
+    FHttpClient: IHttpClient;
+    FMatcher: IMunicipioMatcher;
+    FStatsCalculator: IStatisticsCalculator;
+    FOutputGenerator: IOutputGenerator;
+    procedure ConfiguraGrid;
+    procedure UpdateStatus(const AMessage: String);
+    procedure UpdateProgress(AValue: Integer);
+    procedure PopulateGrid(const AResultados: TList<TResultadoProcessamento>);
+    procedure ProcessarArquivo;
+  public
+    { Public declarations }
+  end;
+
+var
+  Fprincipal: TFprincipal;
+
+implementation
+
+{$R *.dfm}
+
+{ TForm1 }
+
+procedure TFprincipal.FormCreate(Sender: TObject);
+begin
+  FFileReader := TFileReader.Create;
+  FHttpClient := THttpClient.Create;
+  FMatcher := TMunicipioMatcher.Create;
+  FStatsCalculator := TStatisticsCalculator.Create;
+  FOutputGenerator := TOutputGenerator.Create;
+  
+  ConfiguraGrid;
+
+  OpenDialog1.Filter := 'Arquivos CSV (*.csv)|*.csv|Todos os arquivos (*.*)|*.*';
+  OpenDialog1.FilterIndex := 1;
+end;
+
+procedure TFprincipal.FormDestroy(Sender: TObject);
+begin
+  //
+end;
+
+procedure TFprincipal.ConfiguraGrid;
+begin
+  with SGdados do
+  begin
+    ColCount := 7;
+    RowCount := 2;
+    FixedRows := 1;
+  
+    // Configurar larguras das colunas
+    ColWidths[0] := 120;  // municipio_input
+    ColWidths[1] := 100;  // populacao_input
+    ColWidths[2] := 150;  // municipio_ibge
+    ColWidths[3] := 40;   // uf
+    ColWidths[4] := 100;  // regiao
+    ColWidths[5] := 80;   // id_ibge
+    ColWidths[6] := 120;  // status
+  
+    // Cabeçalhos
+    Cells[0, 0] := 'Município Input';
+    Cells[1, 0] := 'População';
+    Cells[2, 0] := 'Município IBGE';
+    Cells[3, 0] := 'UF';
+    Cells[4, 0] := 'Região';
+    Cells[5, 0] := 'ID IBGE';
+    Cells[6, 0] := 'Status';
+  end;
+end;
+
+procedure TFprincipal.BBarquivoClick(Sender: TObject);
+begin
+  if OpenDialog1.Execute then
+  begin
+    FFileName := OpenDialog1.FileName;
+    Larquivo.Caption := ExtractFileName(FFileName);
+    BBProcessar.Enabled := True;
+    UpdateStatus('Arquivo selecionado. Clique em Processar.');
+  end;
+end;
+
+procedure TFprincipal.BBProcessarClick(Sender: TObject);
+begin
+  if FFileName = EmptyStr then
+  begin
+    ShowMessage('Selecione um arquivo primeiro!');
+    Exit;
+  end;
+
+  BBarquivo.Enabled := False;
+  BBProcessar.Enabled := False;
+  ProgressBar1.Position := 0;
+  Msaida.Clear;
+
+  TTask.Run(procedure
+  begin
+    ProcessarArquivo;
+  end);
+end;
+
+procedure TFprincipal.ProcessarArquivo;
+var
+  LMunicipiosInput: TList<TMunicipioInput>;
+  LMunicipiosIBGE: TList<TMunicipioIBGE>;
+  LResultados: TList<TResultadoProcessamento>;
+  LEstatisticas: TEstatisticas;
+  I: Integer;
+  LResultado: TResultadoProcessamento;
+  LStatsJSON: String;
+  LOutputPath: String;
+begin
+  LMunicipiosInput := nil;
+  LMunicipiosIBGE := nil;
+  LResultados := TList<TResultadoProcessamento>.Create;
+  try
+    try
+      // Ler arquivo CSV de entrada
+      TThread.Synchronize(nil, procedure
+      begin
+        UpdateStatus('Lendo arquivo CSV de entrada...');
+        UpdateProgress(10);
+      end);
+      
+      LMunicipiosInput := FFileReader.ReadCSVInput(FFileName);
+      
+      // Consultar API do IBGE
+      TThread.Synchronize(nil, procedure
+      begin
+        UpdateStatus('Consultando API do IBGE...');
+        UpdateProgress(30);
+      end);
+
+      LMunicipiosIBGE := FHttpClient.GetMunicipiosIBGE;
+      
+      // Fazer matching dos municípios
+      TThread.Synchronize(nil, procedure
+      begin
+        UpdateStatus('Fazendo matching dos municípios...');
+        UpdateProgress(50);
+      end);
+      
+      for I := 0 to LMunicipiosInput.Count - 1 do
+      begin
+        LResultado := FMatcher.Match(LMunicipiosInput[I], LMunicipiosIBGE);
+        LResultados.Add(LResultado);
+        
+        // Atualizar progresso
+        if (I + 1) mod 2 = 0 then
+        begin
+          TThread.Synchronize(nil, procedure
+          begin
+            UpdateProgress(50 + ((I + 1) * 20) div LMunicipiosInput.Count);
+          end);
+        end;
+      end;
+      
+      // 4. Calcular estatísticas
+      TThread.Synchronize(nil, procedure
+      begin
+        UpdateStatus('Calculando estatísticas...');
+        UpdateProgress(75);
+      end);
+      
+      LEstatisticas := FStatsCalculator.Calculate(LResultados);
+      
+      // 5. Salvar arquivo de resultado
+      TThread.Synchronize(nil, procedure
+      begin
+        UpdateStatus('Salvando arquivo resultado.csv...');
+        UpdateProgress(85);
+      end);
+      
+      LOutputPath := ExtractFilePath(FFileName) + 'resultado.csv';
+      FOutputGenerator.SaveResultadoCSV(LResultados, LOutputPath);
+      
+      // 6. Gerar JSON de estatísticas
+      LStatsJSON := FOutputGenerator.GenerateStatsJSON(LEstatisticas);
+      
+      // 7. Atualizar UI
+      TThread.Synchronize(nil, procedure
+      begin
+        UpdateStatus('Populando resultados...');
+        UpdateProgress(95);
+        PopulateGrid(LResultados);
+
+        with Msaida.Lines do
+        begin
+          Add('=== ESTATÍSTICAS ===');
+          Add(EmptyStr);
+          Add('Total de municípios: ' + IntToStr(LEstatisticas.TotalMunicipios));
+          Add('Total OK: ' + IntToStr(LEstatisticas.TotalOK));
+          Add('Total não encontrado: ' + IntToStr(LEstatisticas.TotalNaoEncontrado));
+          Add('Total erro API: ' + IntToStr(LEstatisticas.TotalErroAPI));
+          Add('População total (OK): ' + IntToStr(LEstatisticas.PopTotalOK));
+          Add(EmptyStr);
+          Add('Médias por região:');
+
+          var LRegiao: String;
+          for LRegiao in LEstatisticas.MediasPorRegiao.Keys do
+            Add('  ' + LRegiao + ': ' + FormatFloat('#,##0.00', LEstatisticas.MediasPorRegiao[LRegiao]));
+
+          Add(EmptyStr);
+          Add('=== JSON DAS ESTATÍSTICAS ===');
+          Add(LStatsJSON);
+        end;
+      end);
+      
+      // Liberar dicionário
+      LEstatisticas.MediasPorRegiao.Free;
+      
+      // Finalizar
+      TThread.Synchronize(nil, procedure
+      begin
+        UpdateStatus('Processamento concluído!');
+        UpdateProgress(100);
+        BBarquivo.Enabled := True;
+        BBProcessar.Enabled := True;
+        ShowMessage('Processamento concluído!' + sLineBreak + 
+                    'Arquivo salvo em: ' + LOutputPath);
+      end);
+      
+    except
+      on E: Exception do
+      begin
+        TThread.Synchronize(nil, procedure
+        begin
+          UpdateStatus('Erro: ' + E.Message);
+          UpdateProgress(0);
+          BBarquivo.Enabled := True;
+          BBProcessar.Enabled := True;
+          ShowMessage('Erro: ' + E.Message);
+        end);
+      end;
+    end;
+  finally
+    if Assigned(LMunicipiosInput) then
+      LMunicipiosInput.Free;
+    if Assigned(LMunicipiosIBGE) then
+      LMunicipiosIBGE.Free;
+    LResultados.Free;
+  end;
+end;
+
+procedure TFprincipal.UpdateStatus(const AMessage: String);
+begin
+  LStatus.Caption := 'Status: ' + AMessage;
+  Application.ProcessMessages;
+end;
+
+procedure TFprincipal.UpdateProgress(AValue: Integer);
+begin
+  ProgressBar1.Position := AValue;
+  Application.ProcessMessages;
+end;
+
+procedure TFprincipal.PopulateGrid(const AResultados: TList<TResultadoProcessamento>);
+var
+  I: Integer;
+  LResultado: TResultadoProcessamento;
+begin
+  SGdados.RowCount := AResultados.Count + 1;
+  
+  for I := 0 to Pred(AResultados.Count) do
+  begin
+    LResultado := AResultados[I];
+    with SGdados do
+    begin
+      Cells[0, I + 1] := LResultado.MunicipioInput;
+      Cells[1, I + 1] := IntToStr(LResultado.PopulacaoInput);
+      Cells[2, I + 1] := LResultado.MunicipioIBGE;
+      Cells[3, I + 1] := LResultado.UF;
+      Cells[4, I + 1] := LResultado.Regiao;
+      Cells[5, I + 1] := IntToStr(LResultado.IdIBGE);
+      Cells[6, I + 1] := LResultado.Status;
+    end;
+  end;
+end;
+
+end.

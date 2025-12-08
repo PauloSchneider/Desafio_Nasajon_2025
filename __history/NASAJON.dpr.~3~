@@ -1,0 +1,16 @@
+program NASAJON;
+
+uses
+  Vcl.Forms,
+  Uprincipal in 'codigoFonte\Principal\Uprincipal.pas' {Fpri},
+  Interfaces in 'codigoFonte\Interfaces\Interfaces.pas',
+  Implementations in 'codigoFonte\Implementations\Implementations.pas';
+
+{$R *.res}
+
+begin
+  Application.Initialize;
+  Application.MainFormOnTaskbar := True;
+  Application.CreateForm(TFpri, Fpri);
+  Application.Run;
+end.

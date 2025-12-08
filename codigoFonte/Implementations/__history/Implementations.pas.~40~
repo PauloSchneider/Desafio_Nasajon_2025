@@ -1,0 +1,469 @@
+﻿unit Implementations;
+
+interface
+
+uses
+  Interfaces, System.Classes, System.SysUtils, System.JSON,
+  System.Generics.Collections, System.StrUtils, System.Math,
+  REST.Client, REST.Types, Data.Bind.Components, Data.Bind.ObjectScope;
+
+type
+  TFileReader = class(TInterfacedObject, IFileReader)
+  public
+    function ReadCSVInput(const AFileName: string): TList<TMunicipioInput>;
+  end;
+
+  THttpClient = class(TInterfacedObject, IHttpClient)
+  private
+    FRESTClient: TRESTClient;
+    FRESTRequest: TRESTRequest;
+    FRESTResponse: TRESTResponse;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    function GetMunicipiosIBGE: TList<TMunicipioIBGE>;
+  end;
+
+  TMunicipioMatcher = class(TInterfacedObject, IMunicipioMatcher)
+  private
+    function RemoverAcento(const AStr: string): String;
+    function CalcularSimilaridade(const AStr1, AStr2: string): Double;
+  public
+    function Match(const AInput: TMunicipioInput;
+                   const AMunicipiosIBGE: TList<TMunicipioIBGE>): TResultadoProcessamento;
+  end;
+
+  TStatisticsCalculator = class(TInterfacedObject, IStatisticsCalculator)
+  public
+    function Calculate(const AResultados: TList<TResultadoProcessamento>): TEstatisticas;
+  end;
+
+  TOutputGenerator = class(TInterfacedObject, IOutputGenerator)
+  public
+    procedure SaveResultadoCSV(const AResultados: TList<TResultadoProcessamento>;
+                                const AFileName: string);
+    function GenerateStatsJSON(const AStats: TEstatisticas): String;
+  end;
+
+implementation
+
+{ TFileReader }
+
+function TFileReader.ReadCSVInput(const AFileName: string): TList<TMunicipioInput>;
+var
+  LLines: TStringList;
+  I: Integer;
+  LParts: TArray<string>;
+  LMunicipio: TMunicipioInput;
+begin
+  Result := TList<TMunicipioInput>.Create;
+  LLines := TStringList.Create;
+  try
+    LLines.LoadFromFile(AFileName, TEncoding.UTF8);
+
+    // Começa em 1 para pular cabeçalho
+    for I := 1 to Pred(LLines.Count) do
+    begin
+      if Trim(LLines[I]) = EmptyStr then
+        Continue;
+
+      LParts := LLines[I].Split([',']);
+      if Length(LParts) >= 2 then
+      begin
+        LMunicipio.Nome := Trim(LParts[0]);
+        LMunicipio.Populacao := StrToIntDef(Trim(LParts[1]), 0);
+        Result.Add(LMunicipio);
+      end;
+    end;
+  finally
+    LLines.Free;
+  end;
+end;
+
+{ THttpClient }
+
+constructor THttpClient.Create;
+begin
+  inherited;
+  FRESTClient := TRESTClient.Create(nil);
+  FRESTResponse := TRESTResponse.Create(nil);
+  FRESTRequest := TRESTRequest.Create(nil);
+
+  FRESTRequest.Client := FRESTClient;
+  FRESTRequest.Response := FRESTResponse;
+end;
+
+destructor THttpClient.Destroy;
+begin
+  FRESTRequest.Free;
+  FRESTResponse.Free;
+  FRESTClient.Free;
+  inherited;
+end;
+
+//function THttpClient.GetMunicipiosIBGE: TList<TMunicipioIBGE>;
+//var
+//  LJsonArray: TJSONArray;
+//  LJsonObj, LUFObj, LRegiaoObj: TJSONObject;
+//  LMunicipio: TMunicipioIBGE;
+//  I: Integer;
+//  LJsonValue: TJSONValue;
+//begin
+//  Result := TList<TMunicipioIBGE>.Create;
+//  try
+//    FRESTClient.BaseURL := 'https://servicodados.ibge.gov.br/api/v1/localidades';
+//    FRESTRequest.Resource := 'municipios';
+//    FRESTRequest.Method := TRESTRequestMethod.rmGET;
+//    FRESTRequest.Execute;
+//
+//    LJsonValue := TJSONObject.ParseJSONValue(FRESTResponse.Content);
+//    if not Assigned(LJsonValue) then
+//      raise Exception.Create('Resposta da API inválida');
+//
+//    if not (LJsonValue is TJSONArray) then
+//    begin
+//      LJsonValue.Free;
+//      raise Exception.Create('Resposta da API não é um array JSON');
+//    end;
+//
+//    LJsonArray := LJsonValue as TJSONArray;
+//    try
+//      for I := 0 to Pred(LJsonArray.Count) do
+//      begin
+//        if not (LJsonArray.Items[I] is TJSONObject) then
+//          Continue;
+//
+//        LJsonObj := LJsonArray.Items[I] as TJSONObject;
+//
+//        LMunicipio.ID := 0;
+//        LMunicipio.Nome := EmptyStr;
+//        LMunicipio.UF := EmptyStr;
+//        LMunicipio.Regiao := EmptyStr;
+//
+//        if LJsonObj.TryGetValue<Integer>('id', LMunicipio.ID) then
+//          LJsonObj.TryGetValue<string>('nome', LMunicipio.Nome);
+//
+//        if LJsonObj.TryGetValue<TJSONObject>('microrregiao', LUFObj) then
+//        begin
+//          if LUFObj.TryGetValue<TJSONObject>('mesorregiao', LUFObj) then
+//          begin
+//            if LUFObj.TryGetValue<TJSONObject>('UF', LUFObj) then
+//            begin
+//              LUFObj.TryGetValue<string>('sigla', LMunicipio.UF);
+//
+//              if LUFObj.TryGetValue<TJSONObject>('regiao', LRegiaoObj) then
+//                LRegiaoObj.TryGetValue<string>('nome', LMunicipio.Regiao);
+//            end;
+//          end;
+//        end;
+//
+//        if (LMunicipio.ID > 0) and (LMunicipio.Nome <> EmptyStr) then
+//          Result.Add(LMunicipio);
+//      end;
+//    finally
+//      LJsonArray.Free;
+//    end;
+//  except
+//    on E: Exception do
+//    begin
+//      Result.Free;
+//      raise Exception.Create('Erro ao consultar API do IBGE: ' + E.Message);
+//    end;
+//  end;
+//end;
+
+{ TMunicipioMatcher }
+
+function TMunicipioMatcher.RemoverAcento(const AStr: string): String;
+const
+  ComAcento = 'ÀÁÂÃÄÅàáâãäåÒÓÔÕÖØòóôõöøÈÉÊËèéêëÌÍÎÏìíîïÙÚÛÜùúûüÿÑñÇç';
+  SemAcento = 'AAAAAAaaaaaaOOOOOOooooooEEEEeeeeIIIIiiiiUUUUuuuuyNnCc';
+var
+  I: Integer;
+  LPos: Integer;
+begin
+  Result := UpperCase(Trim(AStr));
+
+  for I := 1 to Length(Result) do
+  begin
+    LPos := Pos(Result[I], ComAcento);
+    if LPos > 0 then
+      Result[I] := SemAcento[LPos];
+  end;
+end;
+
+function TMunicipioMatcher.CalcularSimilaridade(const AStr1, AStr2: string): Double;
+var
+  LNorm1, LNorm2: String;
+  LDistancia, LMaxLen: Integer;
+  I, J, LCost: Integer;
+  LMatriz: array of array of Integer;
+begin
+  LNorm1 := RemoverAcento(AStr1);
+  LNorm2 := RemoverAcento(AStr2);
+
+  // Se são iguais, retorna 100%
+  if LNorm1 = LNorm2 then
+    Exit(1.0);
+
+  if (Length(LNorm1) = 0) then
+    Exit(0.0);
+  if (Length(LNorm2) = 0) then
+    Exit(0.0);
+
+  // Algoritmo de Levenshtein (distância de edição)
+  SetLength(LMatriz, Length(LNorm1) + 1, Length(LNorm2) + 1);
+
+  for I := 0 to Length(LNorm1) do
+    LMatriz[I, 0] := I;
+  for J := 0 to Length(LNorm2) do
+    LMatriz[0, J] := J;
+
+  for I := 1 to Length(LNorm1) do
+  begin
+    for J := 1 to Length(LNorm2) do
+    begin
+      if LNorm1[I] = LNorm2[J] then
+        LCost := 0
+      else
+        LCost := 1;
+
+      LMatriz[I, J] := Min(
+        Min(LMatriz[I-1, J] + 1,      // Deleção
+            LMatriz[I, J-1] + 1),      // Inserção
+        LMatriz[I-1, J-1] + LCost      // Substituição
+      );
+    end;
+  end;
+
+  LDistancia := LMatriz[Length(LNorm1), Length(LNorm2)];
+  LMaxLen := Max(Length(LNorm1), Length(LNorm2));
+
+  // Converte distância para similaridade (0 a 1)
+  Result := 1.0 - (LDistancia / LMaxLen);
+end;
+
+function TMunicipioMatcher.Match(const AInput: TMunicipioInput;
+                                  const AMunicipiosIBGE: TList<TMunicipioIBGE>): TResultadoProcessamento;
+var
+  I: Integer;
+  LMelhorSimilaridade: Double;
+  LMelhorIndice: Integer;
+  LSimilaridade: Double;
+  LContadorAmbiguos: Integer;
+  LNomeInputNormalizado: String;
+  LNomeMunicipioNormalizado: String;
+  LMatchExatoEncontrado: Boolean;
+begin
+  Result.MunicipioInput := AInput.Nome;
+  Result.PopulacaoInput := AInput.Populacao;
+  Result.MunicipioIBGE := EmptyStr;
+  Result.UF := EmptyStr;
+  Result.Regiao := EmptyStr;
+  Result.IdIBGE := 0;
+  Result.Status := 'NAO_ENCONTRADO';
+
+  LMelhorSimilaridade := 0;
+  LMelhorIndice := -1;
+  LContadorAmbiguos := 0;
+  LMatchExatoEncontrado := False;
+
+  LNomeInputNormalizado := RemoverAcento(AInput.Nome);
+
+  // procurar match EXATO (após normalização)
+  for I := 0 to Pred(AMunicipiosIBGE.Count) do
+  begin
+    LNomeMunicipioNormalizado := RemoverAcento(AMunicipiosIBGE[I].Nome);
+
+    if LNomeInputNormalizado = LNomeMunicipioNormalizado then
+    begin
+      // Match exato encontrado - retorna imediatamente
+      Result.MunicipioIBGE := AMunicipiosIBGE[I].Nome;
+      Result.UF := AMunicipiosIBGE[I].UF;
+      Result.Regiao := AMunicipiosIBGE[I].Regiao;
+      Result.IdIBGE := AMunicipiosIBGE[I].ID;
+      Result.Status := 'OK';
+      Exit;
+    end;
+  end;
+
+  // Segunda passagem: procurar melhor match aproximado
+  for I := 0 to Pred(AMunicipiosIBGE.Count) do
+  begin
+    LSimilaridade := CalcularSimilaridade(AInput.Nome, AMunicipiosIBGE[I].Nome);
+
+    if LSimilaridade > LMelhorSimilaridade then
+    begin
+      LMelhorSimilaridade := LSimilaridade;
+      LMelhorIndice := I;
+      LContadorAmbiguos := 1;
+    end
+    else if (LSimilaridade >= 0.90) and (Abs(LSimilaridade - LMelhorSimilaridade) < 0.01) then
+    begin
+      // Em caso de empate, preferir Sudeste/Sul sobre outras regiões
+      if (AMunicipiosIBGE[I].Regiao = 'Sudeste') or (AMunicipiosIBGE[I].Regiao = 'Sul') then
+      begin
+        if (LMelhorIndice >= 0) and
+           (AMunicipiosIBGE[LMelhorIndice].Regiao <> 'Sudeste') and
+           (AMunicipiosIBGE[LMelhorIndice].Regiao <> 'Sul') then
+        begin
+          LMelhorIndice := I;
+        end;
+      end;
+      Inc(LContadorAmbiguos);
+    end;
+  end;
+
+  // Se encontrou um match razoável
+  if LMelhorIndice >= 0 then
+  begin
+    if LMelhorSimilaridade >= 0.92 then
+    begin
+      Result.MunicipioIBGE := AMunicipiosIBGE[LMelhorIndice].Nome;
+      Result.UF := AMunicipiosIBGE[LMelhorIndice].UF;
+      Result.Regiao := AMunicipiosIBGE[LMelhorIndice].Regiao;
+      Result.IdIBGE := AMunicipiosIBGE[LMelhorIndice].ID;
+      Result.Status := 'OK';
+    end
+
+    else if LMelhorSimilaridade >= 0.85 then
+    begin
+      Result.MunicipioIBGE := AMunicipiosIBGE[LMelhorIndice].Nome;
+      Result.UF := AMunicipiosIBGE[LMelhorIndice].UF;
+      Result.Regiao := AMunicipiosIBGE[LMelhorIndice].Regiao;
+      Result.IdIBGE := AMunicipiosIBGE[LMelhorIndice].ID;
+
+      // Se tem menos de 85% OU tem múltiplos similares, deixa como não encontrado
+      if (LMelhorSimilaridade < 0.90) and (LContadorAmbiguos > 1) then
+        Result.Status := 'NAO_ENCONTRADO'
+      else
+        Result.Status := 'OK';
+    end;
+  end;
+end;
+
+{ TStatisticsCalculator }
+
+function TStatisticsCalculator.Calculate(const AResultados: TList<TResultadoProcessamento>): TEstatisticas;
+var
+  I: Integer;
+  LResultado: TResultadoProcessamento;
+  LPopPorRegiao: TDictionary<string, Int64>;
+  LCountPorRegiao: TDictionary<string, Integer>;
+  LRegiao: String;
+  LPop: Int64;
+  LCount: Integer;
+begin
+  Result := TEstatisticas.Create(0);
+  LPopPorRegiao := TDictionary<string, Int64>.Create;
+  LCountPorRegiao := TDictionary<string, Integer>.Create;
+  try
+    Result.TotalMunicipios := AResultados.Count;
+
+    for I := 0 to Pred(AResultados.Count) do
+    begin
+      LResultado := AResultados[I];
+
+      if LResultado.Status = 'OK' then
+      begin
+        Inc(Result.TotalOK);
+        Result.PopTotalOK := Result.PopTotalOK + LResultado.PopulacaoInput;
+
+        // Acumular por região
+        if LResultado.Regiao <> EmptyStr then
+        begin
+          if not LPopPorRegiao.TryGetValue(LResultado.Regiao, LPop) then
+            LPop := 0;
+          LPopPorRegiao.AddOrSetValue(LResultado.Regiao, LPop + LResultado.PopulacaoInput);
+
+          if not LCountPorRegiao.TryGetValue(LResultado.Regiao, LCount) then
+            LCount := 0;
+          LCountPorRegiao.AddOrSetValue(LResultado.Regiao, LCount + 1);
+        end;
+      end
+      else if LResultado.Status = 'NAO_ENCONTRADO' then
+        Inc(Result.TotalNaoEncontrado)
+      else if LResultado.Status = 'ERRO_API' then
+        Inc(Result.TotalErroAPI);
+    end;
+
+    // Calcular médias por região
+    for LRegiao in LPopPorRegiao.Keys do
+    begin
+      LPop := LPopPorRegiao[LRegiao];
+      LCount := LCountPorRegiao[LRegiao];
+      if LCount > 0 then
+        Result.MediasPorRegiao.Add(LRegiao, LPop / LCount);
+    end;
+  finally
+    LPopPorRegiao.Free;
+    LCountPorRegiao.Free;
+  end;
+end;
+
+{ TOutputGenerator }
+
+procedure TOutputGenerator.SaveResultadoCSV(const AResultados: TList<TResultadoProcessamento>;
+                                              const AFileName: string);
+var
+  LLines: TStringList;
+  I: Integer;
+  LResultado: TResultadoProcessamento;
+begin
+  LLines := TStringList.Create;
+  try
+    // Cabeçalho
+    LLines.Add('municipio_input,populacao_input,municipio_ibge,uf,regiao,id_ibge,status');
+
+    // Dados
+    for I := 0 to Pred(AResultados.Count) do
+    begin
+      LResultado := AResultados[I];
+      LLines.Add(Format('%s,%d,%s,%s,%s,%d,%s', [
+        LResultado.MunicipioInput,
+        LResultado.PopulacaoInput,
+        LResultado.MunicipioIBGE,
+        LResultado.UF,
+        LResultado.Regiao,
+        LResultado.IdIBGE,
+        LResultado.Status
+      ]));
+    end;
+
+    LLines.SaveToFile(AFileName);
+  finally
+    LLines.Free;
+  end;
+end;
+
+function TOutputGenerator.GenerateStatsJSON(const AStats: TEstatisticas): String;
+var
+  LJson: TJSONObject;
+  LStats: TJSONObject;
+  LMedias: TJSONObject;
+  LRegiao: String;
+begin
+  LJson := TJSONObject.Create;
+  try
+    LStats := TJSONObject.Create;
+    LJson.AddPair('stats', LStats);
+
+    LStats.AddPair('total_municipios', TJSONNumber.Create(AStats.TotalMunicipios));
+    LStats.AddPair('total_ok', TJSONNumber.Create(AStats.TotalOK));
+    LStats.AddPair('total_nao_encontrado', TJSONNumber.Create(AStats.TotalNaoEncontrado));
+    LStats.AddPair('total_erro_api', TJSONNumber.Create(AStats.TotalErroAPI));
+    LStats.AddPair('pop_total_ok', TJSONNumber.Create(AStats.PopTotalOK));
+
+    LMedias := TJSONObject.Create;
+    LStats.AddPair('medias_por_regiao', LMedias);
+
+    for LRegiao in AStats.MediasPorRegiao.Keys do
+      LMedias.AddPair(LRegiao, TJSONNumber.Create(AStats.MediasPorRegiao[LRegiao]));
+
+    Result := LJson.ToJSON;
+  finally
+    LJson.Free;
+  end;
+end;
+
+end.
