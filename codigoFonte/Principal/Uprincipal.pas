@@ -136,6 +136,7 @@ var
   LResultado: TResultadoProcessamento;
   LStatsJSON: String;
   LOutputPath: String;
+  LResposta: String;
 begin
   LMunicipiosInput := nil;
   LMunicipiosIBGE := nil;
@@ -149,7 +150,7 @@ begin
         UpdateProgress(10);
       end);
 
-      LMunicipiosInput := FFileReader.ReadCSVInput(FFileName);
+      LMunicipiosInput := FFileReader.LerCSVInput(FFileName);
 
       // Consultar API do IBGE
       TThread.Synchronize(nil, procedure
@@ -158,7 +159,7 @@ begin
         UpdateProgress(30);
       end);
 
-      LMunicipiosIBGE := FHttpClient.GetMunicipiosIBGE;
+      LMunicipiosIBGE := FHttpClient.ObterMunicipiosIBGE;
 
       // Fazer matching dos municípios
       TThread.Synchronize(nil, procedure
@@ -169,7 +170,7 @@ begin
 
       for I := 0 to Pred(LMunicipiosInput.Count) do
       begin
-        LResultado := FMatcher.Match(LMunicipiosInput[I], LMunicipiosIBGE);
+        LResultado := FMatcher.Compatibilizar(LMunicipiosInput[I], LMunicipiosIBGE);
         LResultados.Add(LResultado);
 
         // Atualizar progresso
@@ -182,16 +183,16 @@ begin
         end;
       end;
 
-      // 4. Calcular estatísticas
+      // Calcular estatísticas
       TThread.Synchronize(nil, procedure
       begin
         UpdateStatus('Calculando estatísticas...');
         UpdateProgress(75);
       end);
 
-      LEstatisticas := FStatsCalculator.Calculate(LResultados);
+      LEstatisticas := FStatsCalculator.Calcular(LResultados);
 
-      // 5. Salvar arquivo de resultado
+      // Salvar arquivo de resultado
       TThread.Synchronize(nil, procedure
       begin
         UpdateStatus('Salvando arquivo resultado.csv...');
@@ -199,12 +200,21 @@ begin
       end);
 
       LOutputPath := ExtractFilePath(FFileName) + 'resultado.csv';
-      FOutputGenerator.SaveResultadoCSV(LResultados, LOutputPath);
+      FOutputGenerator.SalvarResultadoCSV(LResultados, LOutputPath);
 
-      // 6. Gerar JSON de estatísticas
-      LStatsJSON := FOutputGenerator.GenerateStatsJSON(LEstatisticas);
+      // Gerar JSON de estatísticas
+      LStatsJSON := FOutputGenerator.GerarStatsJSON(LEstatisticas);
 
-      // 7. Atualizar UI
+      // Enviar resultado para API de correção
+      TThread.Synchronize(nil, procedure
+      begin
+        UpdateStatus('Enviando resultado para API de correção...');
+        UpdateProgress(90);
+      end);
+
+      LResposta := FHttpClient.EnviarResultadoParaAPI(LStatsJSON);
+
+      // Atualizar UI
       TThread.Synchronize(nil, procedure
       begin
         UpdateStatus('Populando resultados...');
@@ -230,6 +240,9 @@ begin
           Add(EmptyStr);
           Add('=== JSON DAS ESTATÍSTICAS ===');
           Add(LStatsJSON);
+          Add(EmptyStr);
+          Add('=== RESPOSTA DA API DE CORREÇÃO ===');
+          Add(LResposta);
         end;
       end);
 

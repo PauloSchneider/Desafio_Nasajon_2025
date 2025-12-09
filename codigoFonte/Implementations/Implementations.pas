@@ -10,7 +10,7 @@ uses
 type
   TFileReader = class(TInterfacedObject, IFileReader)
   public
-    function ReadCSVInput(const AFileName: string): TList<TMunicipioInput>;
+    function LerCSVInput(const AFileName: String): TList<TMunicipioInput>;
   end;
 
   THttpClient = class(TInterfacedObject, IHttpClient)
@@ -21,35 +21,36 @@ type
   public
     constructor Create;
     destructor Destroy; override;
-    function GetMunicipiosIBGE: TList<TMunicipioIBGE>;
+    function ObterMunicipiosIBGE: TList<TMunicipioIBGE>;
+    function EnviarResultadoParaAPI(const AStatsJSON: String): String;
   end;
 
   TMunicipioMatcher = class(TInterfacedObject, IMunicipioMatcher)
   private
-    function RemoverAcento(const AStr: string): String;
-    function CalcularSimilaridade(const AStr1, AStr2: string): Double;
+    function RemoverAcento(const AStr: String): String;
+    function CalcularSimilaridade(const AStr1, AStr2: String): Double;
   public
-    function Match(const AInput: TMunicipioInput;
+    function Compatibilizar(const AInput: TMunicipioInput;
                    const AMunicipiosIBGE: TList<TMunicipioIBGE>): TResultadoProcessamento;
   end;
 
   TStatisticsCalculator = class(TInterfacedObject, IStatisticsCalculator)
   public
-    function Calculate(const AResultados: TList<TResultadoProcessamento>): TEstatisticas;
+    function Calcular(const AResultados: TList<TResultadoProcessamento>): TEstatisticas;
   end;
 
   TOutputGenerator = class(TInterfacedObject, IOutputGenerator)
   public
-    procedure SaveResultadoCSV(const AResultados: TList<TResultadoProcessamento>;
-                                const AFileName: string);
-    function GenerateStatsJSON(const AStats: TEstatisticas): String;
+    procedure SalvarResultadoCSV(const AResultados: TList<TResultadoProcessamento>;
+                                const AFileName: String);
+    function GerarStatsJSON(const AStats: TEstatisticas): String;
   end;
 
 implementation
 
 { TFileReader }
 
-function TFileReader.ReadCSVInput(const AFileName: string): TList<TMunicipioInput>;
+function TFileReader.LerCSVInput(const AFileName: String): TList<TMunicipioInput>;
 var
   LLines: TStringList;
   I: Integer;
@@ -101,7 +102,7 @@ begin
   inherited;
 end;
 
-function THttpClient.GetMunicipiosIBGE: TList<TMunicipioIBGE>;
+function THttpClient.ObterMunicipiosIBGE: TList<TMunicipioIBGE>;
 var
   LJsonArray: TJSONArray;
   LJsonObj, LUFObj, LRegiaoObj: TJSONObject;
@@ -172,9 +173,76 @@ begin
   end;
 end;
 
+function THttpClient.EnviarResultadoParaAPI(const AStatsJSON: String): String;
+var
+  LAccessToken: String;
+  LParam: TRESTRequestParameter;
+begin
+  LAccessToken := 'eyJhbGciOiJIUzI1NiIsImtpZCI6ImR0TG03UVh1SkZPVDJwZEciLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL215bnhsdWJ5a3lsbmNpbnR0Z2d1LnN1cGFiYXNlLmNvL2F1dGgvdjEiLCJzdWIiOiJkNWU1OTE0Ny01ODE2LTRmMmYtODUwNy00ZTg3ZjcxMGY5M2MiLCJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoxNzY1MjI5MjMyLCJpYXQiOjE3NjUyMjU2MzIsImVtYWlsIjoicHJzY2huZWlkZXI5OEBnbWFpbC5jb20iLCJwaG9uZSI6IiIsImFwcF9tZXRhZGF0YSI6eyJwcm92aWRlciI6ImVtYWlsIiwicHJvdmlkZXJzIjpbImVtYWlsIl19LCJ1c2VyX21ldGFkYXRhIjp7ImVtYWlsIjoicHJzY2huZWlkZXI5OEBnbWFpbC5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibm9tZSI6IlBhdWxvIFJpY2FyZG8gRG9ybmVsbGVzIFNjaG5laWRlciIsInBob25lX3ZlcmlmaWVkIjpmYWxzZSwic3ViIjoiZDVlNTkxNDctNTgxNi00ZjJmLTg1MDctNGU4N2Y3MTBmOTNjIn0sInJvbGUiOiJhdXRoZW50aWNhdGVkIiwiYWFsIjoiYWFsMSIsImFtciI6W3sibWV0aG9kIjoicGFzc3dvcmQiLCJ0aW1lc3RhbXAiOjE3NjUyMjU2MzJ9XSwic2Vzc2lvbl9pZCI6ImMxZTEzYTAwLTkxNTItNDhlMS04YjNiLTFlNmQ0NmFkNjM5MCIsImlzX2Fub255bW91cyI6ZmFsc2V9.6G1EX8nYcrjsMpOHcrP4N9mu1MnTJMDDQkp3NeKp4zQ';
+  Result := EmptyStr;
+  
+  try
+    // Limpar requisição anterior
+    FRESTRequest.Params.Clear;
+    FRESTRequest.Body.ClearBody;
+    
+    // Configurar requisição
+    FRESTClient.BaseURL := 'https://mynxlubykylncinttggu.supabase.co';
+    FRESTRequest.Resource := 'functions/v1/ibge-submit';
+    FRESTRequest.Method := TRESTRequestMethod.rmPOST;
+    FRESTRequest.Accept := 'application/json';
+    FRESTRequest.AcceptCharset := 'UTF-8';
+    
+    // Adicionar headers via Params com tipo pkHTTPHEADER
+    LParam := FRESTRequest.Params.AddItem;
+    LParam.Name := 'Authorization';
+    LParam.Value := 'Bearer ' + LAccessToken;
+    LParam.Kind := pkHTTPHEADER;
+    LParam.Options := LParam.Options + [poDoNotEncode];
+
+    LParam := FRESTRequest.Params.AddItem;
+    LParam.Name := 'apikey';
+    LParam.Value := LAccessToken;
+    LParam.Kind := pkHTTPHEADER;
+    LParam.Options := LParam.Options + [poDoNotEncode];
+    
+    // Adicionar o body com content-type correto
+    FRESTRequest.AddBody(AStatsJSON, ctAPPLICATION_JSON);
+    
+    // Executar
+    FRESTRequest.Execute;
+    
+    // Processar resposta: retornar apenas o score quando possível
+    if FRESTResponse.StatusCode = 200 then
+    begin
+      var LJsonResp := TJSONObject.ParseJSONValue(FRESTResponse.Content) as TJSONObject;
+      try
+        if Assigned(LJsonResp) then
+        begin
+          if not LJsonResp.TryGetValue<String>('score', Result) then
+            Result := FRESTResponse.Content; // fallback
+        end
+        else
+          Result := FRESTResponse.Content;
+      finally
+        if Assigned(LJsonResp) then
+          LJsonResp.Free;
+      end;
+    end
+    else
+      Result := 'Erro ' + IntToStr(FRESTResponse.StatusCode) + ': ' + FRESTResponse.StatusText + 
+                ' - ' + FRESTResponse.Content;
+  except
+    on E: Exception do
+      Result := 'Erro ao enviar: ' + E.Message;
+  end;
+end;
+
 { TMunicipioMatcher }
 
-function TMunicipioMatcher.RemoverAcento(const AStr: string): String;
+{ TMunicipioMatcher }
+
+function TMunicipioMatcher.RemoverAcento(const AStr: String): String;
 const
   ComAcento = 'ÀÁÂÃÄÅàáâãäåÒÓÔÕÖØòóôõöøÈÉÊËèéêëÌÍÎÏìíîïÙÚÛÜùúûüÿÑñÇç';
   SemAcento = 'AAAAAAaaaaaaOOOOOOooooooEEEEeeeeIIIIiiiiUUUUuuuuyNnCc';
@@ -192,7 +260,7 @@ begin
   end;
 end;
 
-function TMunicipioMatcher.CalcularSimilaridade(const AStr1, AStr2: string): Double;
+function TMunicipioMatcher.CalcularSimilaridade(const AStr1, AStr2: String): Double;
 var
   LNorm1, LNorm2: String;
   LDistancia, LMaxLen: Integer;
@@ -243,17 +311,31 @@ begin
   Result := 1.0 - (LDistancia / LMaxLen);
 end;
 
-function TMunicipioMatcher.Match(const AInput: TMunicipioInput;
+function TMunicipioMatcher.Compatibilizar(const AInput: TMunicipioInput;
                                   const AMunicipiosIBGE: TList<TMunicipioIBGE>): TResultadoProcessamento;
 var
   I: Integer;
-  LMelhorSimilaridade: Double;
-  LMelhorIndice: Integer;
-  LSimilaridade: Double;
-  LContadorAmbiguos: Integer;
   LNomeInputNormalizado: String;
   LNomeMunicipioNormalizado: String;
-  LMatchExatoEncontrado: Boolean;
+  LScore: Double;
+  LMelhorScore: Double;
+  LMelhorIndice: Integer;
+  
+  function PrioridadeUF(const AUF: String): Integer;
+  begin
+    // Retorna prioridade maior para UFs mais populosas/importantes
+    if AUF = 'SP' then Exit(10);
+    if AUF = 'RJ' then Exit(9);
+    if AUF = 'MG' then Exit(8);
+    if AUF = 'DF' then Exit(7);
+    if AUF = 'PR' then Exit(6);
+    if AUF = 'RS' then Exit(5);
+    if AUF = 'BA' then Exit(4);
+    if AUF = 'SC' then Exit(3);
+    if AUF = 'PE' then Exit(2);
+    Result := 1;
+  end;
+  
 begin
   Result.MunicipioInput := AInput.Nome;
   Result.PopulacaoInput := AInput.Populacao;
@@ -263,93 +345,101 @@ begin
   Result.IdIBGE := 0;
   Result.Status := 'NAO_ENCONTRADO';
 
-  LMelhorSimilaridade := 0;
-  LMelhorIndice := -1;
-  LContadorAmbiguos := 0;
-  LMatchExatoEncontrado := False;
-
   LNomeInputNormalizado := RemoverAcento(AInput.Nome);
 
-  // procurar match EXATO (após normalização)
+  LMelhorScore := 0;
+  LMelhorIndice := -1;
+  
   for I := 0 to Pred(AMunicipiosIBGE.Count) do
   begin
     LNomeMunicipioNormalizado := RemoverAcento(AMunicipiosIBGE[I].Nome);
 
     if LNomeInputNormalizado = LNomeMunicipioNormalizado then
     begin
-      // Match exato encontrado - retorna imediatamente
-      Result.MunicipioIBGE := AMunicipiosIBGE[I].Nome;
-      Result.UF := AMunicipiosIBGE[I].UF;
-      Result.Regiao := AMunicipiosIBGE[I].Regiao;
-      Result.IdIBGE := AMunicipiosIBGE[I].ID;
-      Result.Status := 'OK';
-      Exit;
+      // Match exato - mas pode haver múltiplos, escolher por prioridade de UF
+      if LMelhorIndice < 0 then
+        LMelhorIndice := I
+      else if PrioridadeUF(AMunicipiosIBGE[I].UF) > PrioridadeUF(AMunicipiosIBGE[LMelhorIndice].UF) then
+        LMelhorIndice := I;
     end;
   end;
 
-  // Segunda passagem: procurar melhor match aproximado
+  // Se encontrou match exato, retornar
+  if LMelhorIndice >= 0 then
+  begin
+    Result.MunicipioIBGE := AMunicipiosIBGE[LMelhorIndice].Nome;
+    Result.UF := AMunicipiosIBGE[LMelhorIndice].UF;
+    Result.Regiao := AMunicipiosIBGE[LMelhorIndice].Regiao;
+    Result.IdIBGE := AMunicipiosIBGE[LMelhorIndice].ID;
+    Result.Status := 'OK';
+    Exit;
+  end;
+
+  // Buscar por similaridade - pegar o melhor score >= 0.85
+  LMelhorScore := 0;
+  LMelhorIndice := -1;
+
   for I := 0 to Pred(AMunicipiosIBGE.Count) do
   begin
-    LSimilaridade := CalcularSimilaridade(AInput.Nome, AMunicipiosIBGE[I].Nome);
+    LScore := CalcularSimilaridade(AInput.Nome, AMunicipiosIBGE[I].Nome);
 
-    if LSimilaridade > LMelhorSimilaridade then
+    // Validação: a diferença de tamanho não pode ser maior que 2 caracteres
+    // para evitar matches com typos muito graves como "Santoo Andre"
+    if Abs(Length(AMunicipiosIBGE[I].Nome) - Length(AInput.Nome)) > 2 then
+      Continue;
+
+    if LScore >= 0.85 then
     begin
-      LMelhorSimilaridade := LSimilaridade;
-      LMelhorIndice := I;
-      LContadorAmbiguos := 1;
-    end
-    else if (LSimilaridade >= 0.90) and (Abs(LSimilaridade - LMelhorSimilaridade) < 0.01) then
-    begin
-      // Em caso de empate, preferir Sudeste/Sul sobre outras regiões
-      if (AMunicipiosIBGE[I].Regiao = 'Sudeste') or (AMunicipiosIBGE[I].Regiao = 'Sul') then
+      // Priorizar matches com score mais alto
+      if LScore > LMelhorScore then
       begin
-        if (LMelhorIndice >= 0) and
-           (AMunicipiosIBGE[LMelhorIndice].Regiao <> 'Sudeste') and
-           (AMunicipiosIBGE[LMelhorIndice].Regiao <> 'Sul') then
+        LMelhorScore := LScore;
+        LMelhorIndice := I;
+      end
+      // Em caso de empate muito próximo (< 0.01), desempatar por UF
+      else if (Abs(LScore - LMelhorScore) < 0.01) and (LMelhorIndice >= 0) then
+      begin
+        if PrioridadeUF(AMunicipiosIBGE[I].UF) > PrioridadeUF(AMunicipiosIBGE[LMelhorIndice].UF) then
         begin
           LMelhorIndice := I;
         end;
+      end
+      // Se empate menos próximo (< 0.05) e tamanho do nome é mais similar, considerar
+      else if (Abs(LScore - LMelhorScore) < 0.05) and (LMelhorIndice >= 0) then
+      begin
+        // Preferir o que tem tamanho mais próximo ao input
+        if (Abs(Length(AMunicipiosIBGE[I].Nome) - Length(AInput.Nome)) < 
+            Abs(Length(AMunicipiosIBGE[LMelhorIndice].Nome) - Length(AInput.Nome))) or
+           ((Abs(Length(AMunicipiosIBGE[I].Nome) - Length(AInput.Nome)) = 
+             Abs(Length(AMunicipiosIBGE[LMelhorIndice].Nome) - Length(AInput.Nome))) and
+            (PrioridadeUF(AMunicipiosIBGE[I].UF) > PrioridadeUF(AMunicipiosIBGE[LMelhorIndice].UF))) then
+        begin
+          LMelhorScore := LScore;
+          LMelhorIndice := I;
+        end;
       end;
-      Inc(LContadorAmbiguos);
     end;
   end;
 
-  // Se encontrou um match razoável
+  // Se encontrou um candidato válido
   if LMelhorIndice >= 0 then
   begin
-    if LMelhorSimilaridade >= 0.92 then
-    begin
-      Result.MunicipioIBGE := AMunicipiosIBGE[LMelhorIndice].Nome;
-      Result.UF := AMunicipiosIBGE[LMelhorIndice].UF;
-      Result.Regiao := AMunicipiosIBGE[LMelhorIndice].Regiao;
-      Result.IdIBGE := AMunicipiosIBGE[LMelhorIndice].ID;
-      Result.Status := 'OK';
-    end
-
-    else if LMelhorSimilaridade >= 0.85 then
-    begin
-      Result.MunicipioIBGE := AMunicipiosIBGE[LMelhorIndice].Nome;
-      Result.UF := AMunicipiosIBGE[LMelhorIndice].UF;
-      Result.Regiao := AMunicipiosIBGE[LMelhorIndice].Regiao;
-      Result.IdIBGE := AMunicipiosIBGE[LMelhorIndice].ID;
-
-      // Se tem menos de 85% OU tem múltiplos similares, deixa como não encontrado
-      if (LMelhorSimilaridade < 0.90) and (LContadorAmbiguos > 1) then
-        Result.Status := 'NAO_ENCONTRADO'
-      else
-        Result.Status := 'OK';
-    end;
+    Result.MunicipioIBGE := AMunicipiosIBGE[LMelhorIndice].Nome;
+    Result.UF := AMunicipiosIBGE[LMelhorIndice].UF;
+    Result.Regiao := AMunicipiosIBGE[LMelhorIndice].Regiao;
+    Result.IdIBGE := AMunicipiosIBGE[LMelhorIndice].ID;
+    Result.Status := 'OK';
   end;
 end;
 
 { TStatisticsCalculator }
 
-function TStatisticsCalculator.Calculate(const AResultados: TList<TResultadoProcessamento>): TEstatisticas;
+function TStatisticsCalculator.Calcular(const AResultados: TList<TResultadoProcessamento>): TEstatisticas;
 var
   I: Integer;
   LResultado: TResultadoProcessamento;
-  LPopPorRegiao: TDictionary<string, Int64>;
-  LCountPorRegiao: TDictionary<string, Integer>;
+  LPopPorRegiao: TDictionary<String, Int64>;
+  LCountPorRegiao: TDictionary<String, Integer>;
   LRegiao: String;
   LPop: Int64;
   LCount: Integer;
@@ -403,8 +493,8 @@ end;
 
 { TOutputGenerator }
 
-procedure TOutputGenerator.SaveResultadoCSV(const AResultados: TList<TResultadoProcessamento>;
-                                              const AFileName: string);
+procedure TOutputGenerator.SalvarResultadoCSV(const AResultados: TList<TResultadoProcessamento>;
+                                              const AFileName: String);
 var
   LLines: TStringList;
   I: Integer;
@@ -436,7 +526,7 @@ begin
   end;
 end;
 
-function TOutputGenerator.GenerateStatsJSON(const AStats: TEstatisticas): String;
+function TOutputGenerator.GerarStatsJSON(const AStats: TEstatisticas): String;
 var
   LJson: TJSONObject;
   LStats: TJSONObject;

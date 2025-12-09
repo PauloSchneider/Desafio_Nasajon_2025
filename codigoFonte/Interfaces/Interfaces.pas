@@ -40,30 +40,31 @@ type
 
   IFileReader = interface
     ['{A1B2C3D4-E5F6-4890-ABCD-EF1234567890}']
-    function ReadCSVInput(const AFileName: string): TList<TMunicipioInput>;
+    function LerCSVInput(const AFileName: String): TList<TMunicipioInput>;
   end;
 
   IHttpClient = interface
     ['{B2C3D4E5-F6A7-4901-BCDE-F12345678901}']
-    function GetMunicipiosIBGE: TList<TMunicipioIBGE>;
+    function ObterMunicipiosIBGE: TList<TMunicipioIBGE>;
+    function EnviarResultadoParaAPI(const AStatsJSON: String): String;
   end;
 
   IMunicipioMatcher = interface
     ['{D4E5F6A7-B8C9-0123-DEF1-234567890123}']
-    function Match(const AInput: TMunicipioInput;
+    function Compatibilizar(const AInput: TMunicipioInput;
                    const AMunicipiosIBGE: TList<TMunicipioIBGE>): TResultadoProcessamento;
   end;
 
   IStatisticsCalculator = interface
     ['{E5F6A7B8-C9D0-1234-EF12-345678901234}']
-    function Calculate(const AResultados: TList<TResultadoProcessamento>): TEstatisticas;
+    function Calcular(const AResultados: TList<TResultadoProcessamento>): TEstatisticas;
   end;
 
   IOutputGenerator = interface
     ['{F6A7B8C9-D0E1-2345-F123-456789012345}']
-    procedure SaveResultadoCSV(const AResultados: TList<TResultadoProcessamento>;
-                                const AFileName: string);
-    function GenerateStatsJSON(const AStats: TEstatisticas): String;
+    procedure SalvarResultadoCSV(const AResultados: TList<TResultadoProcessamento>;
+                                const AFileName: String);
+    function GerarStatsJSON(const AStats: TEstatisticas): String;
   end;
 
 implementation
@@ -77,7 +78,7 @@ begin
   TotalNaoEncontrado := 0;
   TotalErroAPI := 0;
   PopTotalOK := 0;
-  MediasPorRegiao := TDictionary<string, Double>.Create;
+  MediasPorRegiao := TDictionary<String, Double>.Create;
 end;
 
 end.
